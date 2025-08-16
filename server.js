@@ -6,10 +6,10 @@ app.use(express.json());
 
 app.post('/scrape-tracking', async (req, res) => {
   const url = req.body.url;
-  if (!url) {
-    return res.status(400).json({ error: 'url is required' });
+  const domains = req.body.domains;
+  if (!url || !Array.isArray(domains) || domains.length === 0) {
+    return res.status(400).json({ error: 'Provide url and domains array' });
   }
-
   const browser = await puppeteer.launch({
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
     headless: true,
@@ -18,17 +18,24 @@ app.post('/scrape-tracking', async (req, res) => {
   const trackedRequests = [];
 
   page.on('requestfinished', request => {
-    const requestUrl = request.url();
-    if (requestUrl.includes('facebook.com/tr?')) {
-      trackedRequests.push({ type: 'facebook', url: requestUrl, method: request.method(), postData: request.postData() });
-    }
-    if (requestUrl.includes('googletagmanager.com/gtm.js')) {
-      trackedRequests.push({ type: 'gtm', url: requestUrl, method: request.method() });
+    try {
+      const requestUrl = new URL(request.url());
+      if (domains.some(domain => requestUrl.hostname === domain || requestUrl.hostname.endsWith('.' + domain))) {
+        trackedRequests.push({
+          url: request.url(),
+          hostname: requestUrl.hostname,
+          method: request.method(),
+          resourceType: request.resourceType(),
+          postData: request.postData()
+        });
+      }
+    } catch (e) {
+      // Just skip malformed URLs
     }
   });
 
   try {
-    await page.goto(url, { waitUntil: 'networkidle2' });
+    await page.goto(url, { waitUntil: 'load' });
     await new Promise(res => setTimeout(res, 5000));
     await browser.close();
     res.json(trackedRequests);
@@ -38,5 +45,5 @@ app.post('/scrape-tracking', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`Listening on ${PORT}`));

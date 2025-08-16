@@ -15,17 +15,21 @@ app.post('/scrape-tracking', async (req, res) => {
 
   const browser = await puppeteer.launch({
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    headless: true // Railway runs headless
+    headless: true
   });
   const page = await browser.newPage();
-
   await page.setUserAgent(
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   );
   await page.setViewport({ width: 1280, height: 800 });
 
   const matchedRequests = [];
-  page.on('requestfinished', request => {
+
+  page.on('requestfinished', async (request) => {
+    // Get response object
+    const response = request.response();
+    if (!response) return;
+
     try {
       const reqUrl = new URL(request.url());
       if (
@@ -34,9 +38,22 @@ app.post('/scrape-tracking', async (req, res) => {
             reqUrl.hostname === domain || reqUrl.hostname.endsWith('.' + domain)
         )
       ) {
+        // Try to get response body as text, but handle errors
+        let responseBody = null;
+        try {
+          responseBody = await response.text();
+        } catch (err) {
+          responseBody = '[could not get body]';
+        }
+
         matchedRequests.push({
           url: request.url(),
           method: request.method(),
+          requestHeaders: request.headers(),
+          requestBody: request.postData(),
+          responseHeaders: response.headers(),
+          status: response.status(),
+          responseBody,
           resourceType: request.resourceType()
         });
       }
@@ -58,3 +75,4 @@ app.post('/scrape-tracking', async (req, res) => {
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`Listening on ${PORT}`));
+
